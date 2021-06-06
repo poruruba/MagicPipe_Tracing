@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+  <div class="container" style="position: relative;">
+    <video class="input_video" style="position: absolute; visibility: hidden"></video>
+    <canvas class="video_canvas" width="1280px" height="720px" style="position: absolute;"></canvas>
+    <canvas class="output_canvas" width="1280px" height="720px" style="position: absolute;"></canvas>
+  </div>
+</body>
+<script type="module">
+const videoElement = document.getElementsByClassName('input_video')[0];
+const canvasElement = document.getElementsByClassName('output_canvas')[0];
+const videoCanvasElement = document.getElementsByClassName('video_canvas')[0];
+const canvasCtx = canvasElement.getContext('2d');
+const videoCtx = videoCanvasElement.getContext('2d');
+  
+let mouse_pressed = false;
+let prev_xy = { x : -1, y : -1 };
+let draw_cleared = true;
+const NUM_OF_DATA = 3;
+
+window.onmousedown = (event) =>{
+  mouse_pressed = true;
+};
+window.onmouseup = (event) => {
+  mouse_pressed = false;
+};
+window.onmouseout = (event) =>{
+  mouse_pressed = false;
+}
+
+let x_ary = [];
+let y_ary = [];
+
+function reset_position(){
+  for( var i = 0 ; i < NUM_OF_DATA ; i++ ){
+    x_ary[i] = -1;
+    y_ary[i] = -1;
+  }
+
+  return { x: -1, y: -1 };
+}
+
+function push_positioin(x, y){
+  for( let i = 0 ; i < NUM_OF_DATA - 1 ; i++ ){
+    x_ary[NUM_OF_DATA - 1 - i] = x_ary[NUM_OF_DATA - 1 - i - 1];
+    y_ary[NUM_OF_DATA - 1 - i] = y_ary[NUM_OF_DATA - 1 - i - 1];
+  }
+  x_ary[0] = x;
+  y_ary[0] = y;
+
+  let sum_x = 0, sum_y = 0;
+  let i = 0;
+  for( i = 0 ; i < NUM_OF_DATA ; i++ ){
+    if (x_ary[i] < 0 || y_ary[i] < 0)
+      break;
+    sum_x += x_ary[i];
+    sum_y += y_ary[i];
+  }
+  if( i == 0 )
+    return { x: -1, y: -1 };
+  else
+    return { x: sum_x / i, y: sum_y / i };
+}
+
+function onResults(results) {
+  canvasCtx.save();
+
+  videoCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+  canvasCtx.strokeStyle = '#800';
+  canvasCtx.fillStyle = '#800';
+  canvasCtx.lineWidth = 10;
+
+  if( results.poseLandmarks[13].visibility >= 0.7 && results.poseLandmarks[11].visibility >= 0.7 && prev_xy.x < 0 && prev_xy.y < 0 && !draw_cleared){
+    var w = results.poseLandmarks[13].x - results.poseLandmarks[11].x;
+    var h = results.poseLandmarks[13].y - results.poseLandmarks[11].y;
+    var fire = (Math.abs(w / h) < 0.5) && (h < 0.0) && mouse_pressed;
+    console.log(fire);
+    if( fire ){
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      draw_cleared = true;
+      mouse_pressed = false;
+    }
+  }
+  if (results.poseLandmarks[19].visibility >= 0.7 && results.poseLandmarks[15].visibility >= 0.7 & mouse_pressed) {
+    var x1 = results.poseLandmarks[19].x;
+    var y1 = results.poseLandmarks[19].y;
+    var x2 = results.poseLandmarks[15].x;
+    var y2 = results.poseLandmarks[15].y;
+    var x = x1 + (x1 - x2);
+    var y = y1 + (y1 - y2);
+
+    var pos = push_positioin(x, y);
+
+    if( prev_xy.x >= 0 && prev_xy.y >= 0 ){
+      canvasCtx.beginPath();
+      canvasCtx.moveTo(prev_xy.x * 1280, prev_xy.y * 720);
+      canvasCtx.lineTo(pos.x * 1280, pos.y * 720);
+      canvasCtx.stroke();
+      draw_cleared = false;
+    }
+    prev_xy = pos;
+  }else{
+    prev_xy = reset_position();
+  }
+
+
+  canvasCtx.restore();
+}
+
+const pose = new Pose({locateFile: (file) => {
+  return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
+}});
+pose.setOptions({
+  modelComplexity: 1,
+  smoothLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5,
+  selfieMode: true,
+});
+pose.onResults(onResults);
+
+const camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await pose.send({image: videoElement});
+  },
+  width: 1280,
+  height: 720
+});
+reset_position();
+camera.start();
+</script>
+</html>
